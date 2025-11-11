@@ -1,6 +1,6 @@
 # phone_time_manager
 
-A new Flutter project.
+Phone time maneger
 
 ## Getting Started
 
