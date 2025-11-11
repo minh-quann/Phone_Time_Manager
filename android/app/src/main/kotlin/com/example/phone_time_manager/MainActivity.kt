@@ -118,38 +118,73 @@ class MainActivity : FlutterActivity() {
         val pm = packageManager
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            val aggregated: Map<String, UsageStats> = usm.queryAndAggregateUsageStats(start, end)
-            
-            android.util.Log.d("UsageStats", "Tổng số app trong aggregated: ${aggregated.size}")
-            
-            // Lọc và sắp xếp theo thời gian sử dụng
-            val sortedApps = aggregated.toList().sortedByDescending { it.second.totalTimeInForeground }
-            
-            android.util.Log.d("UsageStats", "Số app sau khi sắp xếp: ${sortedApps.size}")
-            
-            for ((packageName, usage) in sortedApps) {
-                // Bỏ qua system apps và apps không có thời gian sử dụng
-                if (usage.totalTimeInForeground <= 0) continue
-                
+            var aggregated: Map<String, UsageStats> = usm.queryAndAggregateUsageStats(start, end)
+
+            // Fallback: một số thiết bị trả về rỗng với queryAndAggregateUsageStats cho khoảng nhỏ.
+            // Khi đó tự tổng hợp từ queryUsageStats.
+            if (aggregated.isEmpty()) {
+                android.util.Log.d("UsageStats", "Aggregated rỗng, dùng fallback queryUsageStats")
+                val raw: List<UsageStats> = usm.queryUsageStats(UsageStatsManager.INTERVAL_DAILY, start, end) ?: emptyList()
+                val map = mutableMapOf<String, UsageStats>()
+                for (u in raw) {
+                    val exist = map[u.packageName]
+                    if (exist == null) {
+                        map[u.packageName] = u
+                    } else {
+                        // Cộng dồn thời gian foreground/visible
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                            exist.totalTimeVisible += u.totalTimeVisible
+                        }
+                        exist.totalTimeInForeground += u.totalTimeInForeground
+                    }
+                }
+                aggregated = map
+            }
+
+            android.util.Log.d("UsageStats", "Tổng số app sau aggregate: ${aggregated.size}")
+
+            // Tính tổng thời gian theo package bằng map riêng (tránh sửa trường val của UsageStats)
+            val totals = mutableMapOf<String, Long>()
+            if (aggregated.isNotEmpty()) {
+                for ((pkg, usage) in aggregated) {
+                    val t = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        maxOf(usage.totalTimeVisible, usage.totalTimeInForeground)
+                    } else {
+                        usage.totalTimeInForeground
+                    }
+                    if (t > 0) totals[pkg] = (totals[pkg] ?: 0L) + t
+                }
+            } else {
+                // fallback path: đã có 'raw' phía trên
+                val raw: List<UsageStats> = usm.queryUsageStats(UsageStatsManager.INTERVAL_DAILY, start, end) ?: emptyList()
+                for (u in raw) {
+                    val t = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        maxOf(u.totalTimeVisible, u.totalTimeInForeground)
+                    } else {
+                        u.totalTimeInForeground
+                    }
+                    if (t > 0) totals[u.packageName] = (totals[u.packageName] ?: 0L) + t
+                }
+            }
+
+            val sortedApps = totals.toList().sortedByDescending { it.second }
+            for ((packageName, timeMs) in sortedApps) {
                 try {
                     val appInfo = pm.getApplicationInfo(packageName, 0)
-                    
-                    // Bỏ qua system apps (tùy chọn, có thể bỏ comment để hiển thị)
-                    // if ((appInfo.flags and ApplicationInfo.FLAG_SYSTEM) != 0) continue
-                    
                     val appName = pm.getApplicationLabel(appInfo).toString()
-                    
-                    android.util.Log.d("UsageStats", "App: $appName ($packageName) - ${usage.totalTimeInForeground}ms")
-                    
+                    android.util.Log.d("UsageStats", "App: $appName ($packageName) - ${timeMs}ms")
                     appList.add(mapOf(
                         "packageName" to packageName,
                         "appName" to appName,
-                        "usageTime" to usage.totalTimeInForeground // milliseconds
+                        "usageTime" to timeMs
                     ))
                 } catch (e: Exception) {
-                    // App không tồn tại hoặc không thể truy cập, bỏ qua
-                    android.util.Log.d("UsageStats", "Lỗi khi lấy thông tin app $packageName: ${e.message}")
-                    continue
+                    android.util.Log.d("UsageStats", "Fallback label for $packageName: ${e.message}")
+                    appList.add(mapOf(
+                        "packageName" to packageName,
+                        "appName" to packageName,
+                        "usageTime" to timeMs
+                    ))
                 }
             }
         }

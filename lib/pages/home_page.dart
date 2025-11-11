@@ -6,8 +6,18 @@ import '../services/usage_service.dart';
 import '../services/notification_service.dart';
 import '../services/preferences_service.dart';
 import '../models/app_usage.dart';
+import 'stats_page.dart';
 
 class HomePage extends StatefulWidget {
+  final Future<void> Function(ThemeMode) onChangeThemeMode;
+  final ThemeMode currentThemeMode;
+
+  const HomePage({
+    super.key,
+    required this.onChangeThemeMode,
+    required this.currentThemeMode,
+  });
+
   @override
   State createState() => _HomePageState();
 }
@@ -282,233 +292,303 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     final remainingMinutes = (targetMinutes - totalUsage.inMinutes).clamp(0, targetMinutes);
     final progress = (totalUsage.inMinutes / targetMinutes).clamp(0.0, 1.0);
 
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
     return Scaffold(
-      backgroundColor: Colors.black,
-      body: SafeArea(
-        child: RefreshIndicator(
-          onRefresh: _updateUsageAndCheck,
-          backgroundColor: Color(0xFF1E1E1E),
-          color: Colors.green,
-          child: SingleChildScrollView(
-            physics: AlwaysScrollableScrollPhysics(),
-            padding: EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Phần 1: Tổng thời gian sử dụng và phân loại
-                _buildTotalUsageCard(totalUsage, categories),
-                SizedBox(height: 16),
-
-                // Phần 2: Ứng dụng được dùng nhiều nhất
-                _buildTopAppsCard(),
-                SizedBox(height: 16),
-
-                // Phần 3: Mục tiêu thời gian sáng màn hình
-                _buildScreenTimeGoalCard(progress, remainingMinutes, targetMinutes),
-                SizedBox(height: 16),
-
-                // Phần 4: Thống kê ứng dụng
-                _buildAppStatsCard(),
-                SizedBox(height: 16),
+      body: RefreshIndicator(
+        onRefresh: _updateUsageAndCheck,
+        color: colorScheme.primary,
+        child: CustomScrollView(
+          physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
+          slivers: [
+            SliverAppBar.large(
+              title: const Text('Quản lý thời gian'),
+              actions: [
+                IconButton(
+                  tooltip: 'Thống kê theo ngày',
+                  icon: const Icon(Icons.bar_chart_rounded),
+                  onPressed: () {
+                    Navigator.of(context).push(MaterialPageRoute(builder: (_) => const StatsPage()));
+                  },
+                ),
+                IconButton(
+                  tooltip: 'Đổi chế độ sáng/tối',
+                  icon: Icon(_themeIconFor(widget.currentThemeMode)),
+                  onPressed: _cycleThemeMode,
+                ),
               ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildTotalUsageCard(Duration totalUsage, List<CategoryUsage> categories) {
-    final totalMinutes = categories.fold<int>(
-      0,
-      (sum, cat) => sum + cat.duration.inMinutes,
-    );
-    final totalMinutesDouble = totalMinutes.toDouble();
-
-    return Card(
-      color: Color(0xFF1E1E1E),
-      child: Padding(
-        padding: EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              _formatDuration(totalUsage),
-              style: TextStyle(
-                fontSize: 32,
-                fontWeight: FontWeight.bold,
-                color: Colors.white,
-              ),
-            ),
-            SizedBox(height: 16),
-            // Thanh tiến trình phân loại
-            ClipRRect(
-              borderRadius: BorderRadius.circular(8),
-              child: Container(
-                height: 24,
-                child: Row(
-                  children: categories.map((cat) {
-                    final width = (cat.duration.inMinutes / totalMinutesDouble).clamp(0.0, 1.0);
-                    return Expanded(
-                      flex: (width * 1000).round(),
-                      child: Container(
-                        color: cat.color,
-                      ),
-                    );
-                  }).toList(),
-                ),
-              ),
-            ),
-            SizedBox(height: 12),
-            // Danh sách categories
-            ...categories.map((cat) {
-              return Padding(
-                padding: EdgeInsets.only(bottom: 8),
-                child: Row(
-                  children: [
-                    Container(
-                      width: 12,
-                      height: 12,
-                      decoration: BoxDecoration(
-                        color: cat.color,
-                        shape: BoxShape.circle,
-                      ),
-                    ),
-                    SizedBox(width: 8),
-                    Text(
-                      cat.name,
-                      style: TextStyle(color: Colors.white70, fontSize: 14),
-                    ),
-                    Spacer(),
-                    Text(
-                      _formatDurationShort(cat.duration),
-                      style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w500),
-                    ),
-                  ],
-                ),
-              );
-            }),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildTopAppsCard() {
-    // Đảm bảo topApps được sắp xếp đúng
-    final sortedTopApps = List<AppUsage>.from(topApps);
-    sortedTopApps.sort((a, b) => b.duration.compareTo(a.duration));
-    
-    if (sortedTopApps.isEmpty) {
-      return Card(
-        color: Color(0xFF1E1E1E),
-        child: Padding(
-          padding: EdgeInsets.all(20),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Ứng dụng được dùng nhiều nhất',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.white,
-                ),
-              ),
-              SizedBox(height: 16),
-              Text(
-                'Chưa có dữ liệu sử dụng ứng dụng',
-                style: TextStyle(
-                  color: Colors.white70,
-                  fontSize: 14,
-                ),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-    
-    return Card(
-      color: Color(0xFF1E1E1E),
-      child: Padding(
-        padding: EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Ứng dụng được dùng nhiều nhất',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: Colors.white,
-              ),
-            ),
-            SizedBox(height: 16),
-            ...sortedTopApps.map((app) {
-              return Padding(
-                padding: EdgeInsets.only(bottom: 12),
-                child: Row(
-                  children: [
-                    Container(
-                      width: 48,
-                      height: 48,
-                      decoration: BoxDecoration(
-                        color: app.iconColor == Colors.black
-                            ? Colors.white
-                            : (app.name == 'Facebook' 
-                                ? app.iconColor 
-                                : app.iconColor.withOpacity(0.2)),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Icon(
-                        app.icon,
-                        color: app.iconColor == Colors.black 
-                            ? Colors.black 
-                            : (app.name == 'Facebook' ? Colors.white : app.iconColor),
-                        size: 24,
-                      ),
-                    ),
-                    SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            app.name,
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 16,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                          SizedBox(height: 4),
-                          Text(
-                            _formatDuration(app.duration),
-                            style: TextStyle(
-                              color: Colors.white70,
-                              fontSize: 14,
-                            ),
-                          ),
+              flexibleSpace: LayoutBuilder(
+                builder: (context, constraints) {
+                  return Container(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [
+                          colorScheme.primary.withOpacity(0.08),
+                          colorScheme.secondary.withOpacity(0.06),
                         ],
                       ),
                     ),
+                  );
+                },
+              ),
+            ),
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                child: Column(
+                  children: [
+                    _buildUsageHeroCard(totalUsage, progress, targetMinutes),
+                    SizedBox(height: 16),
+                    _buildCategorySection(),
+                    SizedBox(height: 16),
+                    _buildTopAppsCarousel(),
+                    SizedBox(height: 16),
+                    _buildScreenTimeGoalCard(progress, remainingMinutes, targetMinutes),
+                    SizedBox(height: 16),
+                    _buildAppStatsCard(),
+                    SizedBox(height: 24),
                   ],
                 ),
-              );
-            }),
+              ),
+            ),
           ],
         ),
       ),
     );
   }
+
+  void _cycleThemeMode() {
+    final next = () {
+      switch (widget.currentThemeMode) {
+        case ThemeMode.system:
+          return ThemeMode.light;
+        case ThemeMode.light:
+          return ThemeMode.dark;
+        case ThemeMode.dark:
+          return ThemeMode.system;
+      }
+    }();
+    widget.onChangeThemeMode(next);
+  }
+
+  IconData _themeIconFor(ThemeMode mode) {
+    switch (mode) {
+      case ThemeMode.light:
+        return Icons.light_mode_rounded;
+      case ThemeMode.dark:
+        return Icons.dark_mode_rounded;
+      case ThemeMode.system:
+        return Icons.brightness_auto_rounded;
+    }
+  }
+
+  // New modern hero usage section with animated ring and gradient
+  Widget _buildUsageHeroCard(Duration totalUsage, double progress, int targetMinutes) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final targetDuration = Duration(minutes: targetMinutes);
+
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      child: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              colorScheme.primary.withOpacity(0.10),
+              colorScheme.secondary.withOpacity(0.08),
+            ],
+          ),
+        ),
+        padding: EdgeInsets.all(20),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Hôm nay',
+                    style: theme.textTheme.labelLarge?.copyWith(
+                      color: theme.colorScheme.onSurface.withOpacity(0.7),
+                    ),
+                  ),
+                  SizedBox(height: 6),
+                  AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 250),
+                    child: Text(
+                      _formatDuration(totalUsage),
+                      key: ValueKey(totalUsage.inMinutes),
+                      style: theme.textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w800),
+                    ),
+                  ),
+                  SizedBox(height: 6),
+                  Text(
+                    'Mục tiêu ${_formatDuration(targetDuration)}',
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: theme.colorScheme.onSurface.withOpacity(0.7),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            SizedBox(
+              width: 120,
+              height: 120,
+              child: _AnimatedProgressRing(
+                progress: progress.clamp(0, 1),
+                color: colorScheme.primary,
+                background: colorScheme.surfaceVariant.withOpacity(0.3),
+                child: Text('${(progress * 100).clamp(0, 100).toStringAsFixed(0)}%',
+                    style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCategorySection() {
+    if (categories.isEmpty) {
+      return SizedBox.shrink();
+    }
+    final totalMinutes = categories.fold<int>(0, (s, c) => s + c.duration.inMinutes).toDouble();
+    final theme = Theme.of(context);
+    return Card(
+      child: Padding(
+        padding: EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Text('Phân loại sử dụng', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+                Spacer(),
+                Text(_formatDuration(categories.fold(Duration.zero, (s, c) => s + c.duration)),
+                    style: theme.textTheme.bodyMedium),
+              ],
+            ),
+            SizedBox(height: 12),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(10),
+              child: Row(
+                children: categories.map((c) {
+                  final w = ((c.duration.inMinutes / totalMinutes) * 1000).clamp(1, 1000).round();
+                  return Expanded(
+                    flex: w,
+                    child: Container(height: 12, color: c.color.withOpacity(0.9)),
+                  );
+                }).toList(),
+              ),
+            ),
+            SizedBox(height: 12),
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: categories.map((c) {
+                return Chip(
+                  label: Text('${c.name} • ${_formatDurationShort(c.duration)}'),
+                  backgroundColor: c.color.withOpacity(0.15),
+                  labelStyle: TextStyle(color: Theme.of(context).colorScheme.onSurface),
+                  side: BorderSide(color: c.color.withOpacity(0.4)),
+                );
+              }).toList(),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTopAppsCarousel() {
+    if (topApps.isEmpty) return SizedBox.shrink();
+    final theme = Theme.of(context);
+    final apps = List<AppUsage>.from(topApps)..sort((a, b) => b.duration.compareTo(a.duration));
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: EdgeInsets.only(left: 4, bottom: 8),
+          child: Text('Ứng dụng nổi bật', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+        ),
+        SizedBox(
+          height: 140,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            itemBuilder: (_, i) {
+              final app = apps[i];
+              return Container(
+                width: 220,
+                child: Card(
+                  child: Padding(
+                    padding: EdgeInsets.all(16),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 44,
+                          height: 44,
+                          decoration: BoxDecoration(
+                            color: app.iconColor == Colors.black
+                                ? Colors.white
+                                : app.iconColor.withOpacity(0.2),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Icon(
+                            app.icon,
+                            color: app.iconColor == Colors.black ? Colors.black : app.iconColor,
+                          ),
+                        ),
+                        SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Text(app.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontWeight: FontWeight.w600)),
+                              SizedBox(height: 4),
+                              Text(_formatDuration(app.duration), style: theme.textTheme.bodySmall),
+                              SizedBox(height: 8),
+                              LinearProgressIndicator(
+                                value: _relativeAppUsage(app.duration),
+                                minHeight: 6,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            },
+            separatorBuilder: (_, __) => SizedBox(width: 12),
+            itemCount: apps.length,
+          ),
+        ),
+      ],
+    );
+  }
+
+  double _relativeAppUsage(Duration d) {
+    final max = allApps.isEmpty ? 1 : allApps.map((a) => a.duration).reduce((a, b) => a > b ? a : b).inMinutes.toDouble();
+    if (max == 0) return 0;
+    return (d.inMinutes / max).clamp(0.0, 1.0);
+  }
+
+  // Removed legacy _buildTotalUsageCard (superseded by _buildUsageHeroCard and _buildCategorySection)
+
+  // Removed legacy _buildTopAppsCard (superseded by _buildTopAppsCarousel)
 
   Widget _buildScreenTimeGoalCard(double progress, int remainingMinutes, int targetMinutes) {
     final remainingDuration = Duration(minutes: remainingMinutes);
     final targetDuration = Duration(minutes: targetMinutes);
 
     return Card(
-      color: Color(0xFF1E1E1E),
       child: Padding(
         padding: EdgeInsets.all(20),
         child: Row(
@@ -522,7 +602,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                     style: TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
-                      color: Colors.white,
                     ),
                   ),
                   SizedBox(height: 16),
@@ -531,10 +610,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                     child: Text(
                       'Mục tiêu ${_formatDuration(targetDuration)}',
                       style: TextStyle(
-                        color: Colors.white70,
                         fontSize: 14,
                         decoration: TextDecoration.underline,
-                        decorationColor: Colors.white70,
+                        decorationColor: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
                       ),
                     ),
                   ),
@@ -542,7 +620,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   Text(
                     _formatDuration(remainingDuration),
                     style: TextStyle(
-                      color: Colors.white,
                       fontSize: 24,
                       fontWeight: FontWeight.bold,
                     ),
@@ -551,7 +628,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   Text(
                     'Còn lại',
                     style: TextStyle(
-                      color: Colors.white70,
                       fontSize: 14,
                     ),
                   ),
@@ -566,12 +642,19 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               child: Stack(
                 alignment: Alignment.center,
                 children: [
-                  CircularProgressIndicator(
-                    value: progress.clamp(0.0, 1.0),
-                    strokeWidth: 14,
-                    backgroundColor: Color(0xFF2D2D2D),
-                    valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF22C55E)), // Green
-                  ),
+                  TweenAnimationBuilder<double>(
+                    duration: Duration(milliseconds: 600),
+                    curve: Curves.easeOutCubic,
+                    tween: Tween(begin: 0, end: progress.clamp(0.0, 1.0)),
+                    builder: (_, value, __) {
+                      return CircularProgressIndicator(
+                        value: value,
+                        strokeWidth: 14,
+                        backgroundColor: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.3),
+                        valueColor: AlwaysStoppedAnimation<Color>(Theme.of(context).colorScheme.primary),
+                      );
+                    },
+                  )
                 ],
               ),
             ),
@@ -592,17 +675,16 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         return StatefulBuilder(
           builder: (context, setDialogState) {
             return AlertDialog(
-              backgroundColor: Color(0xFF1E1E1E),
               title: Text(
                 'Chỉnh sửa mục tiêu',
-                style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                style: TextStyle(fontWeight: FontWeight.bold),
               ),
               content: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(
                     'Đặt mục tiêu thời gian sử dụng màn hình hàng ngày',
-                    style: TextStyle(color: Colors.white70, fontSize: 14),
+                    style: TextStyle(fontSize: 14),
                     textAlign: TextAlign.center,
                   ),
                   SizedBox(height: 24),
@@ -614,14 +696,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                         children: [
                           Text(
                             'Giờ',
-                            style: TextStyle(color: Colors.white70, fontSize: 14),
+                            style: TextStyle(fontSize: 14),
                           ),
                           SizedBox(height: 8),
                           Container(
                             width: 80,
                             height: 120,
                             decoration: BoxDecoration(
-                              color: Color(0xFF2D2D2D),
+                              color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.3),
                               borderRadius: BorderRadius.circular(12),
                             ),
                             child: ListWheelScrollView.useDelegate(
@@ -641,7 +723,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                                     child: Text(
                                       index.toString().padLeft(2, '0'),
                                       style: TextStyle(
-                                        color: isSelected ? Colors.white : Colors.white54,
                                         fontSize: 24,
                                         fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
                                       ),
@@ -657,7 +738,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                       SizedBox(width: 16),
                       Text(
                         ':',
-                        style: TextStyle(color: Colors.white, fontSize: 32, fontWeight: FontWeight.bold),
+                        style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
                       ),
                       SizedBox(width: 16),
                       // Phút
@@ -665,14 +746,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                         children: [
                           Text(
                             'Phút',
-                            style: TextStyle(color: Colors.white70, fontSize: 14),
+                            style: TextStyle(fontSize: 14),
                           ),
                           SizedBox(height: 8),
                           Container(
                             width: 80,
                             height: 120,
                             decoration: BoxDecoration(
-                              color: Color(0xFF2D2D2D),
+                              color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.3),
                               borderRadius: BorderRadius.circular(12),
                             ),
                             child: ListWheelScrollView.useDelegate(
@@ -692,7 +773,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                                     child: Text(
                                       index.toString().padLeft(2, '0'),
                                       style: TextStyle(
-                                        color: isSelected ? Colors.white : Colors.white54,
                                         fontSize: 24,
                                         fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
                                       ),
@@ -711,13 +791,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   Container(
                     padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                     decoration: BoxDecoration(
-                      color: Color(0xFF2D2D2D),
+                      color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.3),
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Text(
                       'Mục tiêu: ${tempHours.toString().padLeft(2, '0')}:${tempMinutes.toString().padLeft(2, '0')}',
                       style: TextStyle(
-                        color: Colors.white,
                         fontSize: 16,
                         fontWeight: FontWeight.bold,
                       ),
@@ -730,7 +809,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   onPressed: () => Navigator.of(context).pop(),
                   child: Text(
                     'Hủy',
-                    style: TextStyle(color: Colors.white70),
                   ),
                 ),
                 ElevatedButton(
@@ -745,8 +823,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                     Navigator.of(context).pop();
                   },
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: Color(0xFF22C55E),
-                    foregroundColor: Colors.white,
+                    backgroundColor: Theme.of(context).colorScheme.primary,
+                    foregroundColor: Theme.of(context).colorScheme.onPrimary,
                   ),
                   child: Text('Lưu'),
                 ),
@@ -764,7 +842,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     sortedApps.sort((a, b) => b.duration.compareTo(a.duration));
 
     return Card(
-      color: Color(0xFF1E1E1E),
       child: Padding(
         padding: EdgeInsets.all(20),
         child: Column(
@@ -775,14 +852,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               style: TextStyle(
                 fontSize: 18,
                 fontWeight: FontWeight.bold,
-                color: Colors.white,
               ),
             ),
             SizedBox(height: 8),
             Text(
               'Danh sách tất cả các ứng dụng bạn đã sử dụng hôm nay',
               style: TextStyle(
-                color: Colors.white70,
                 fontSize: 14,
               ),
             ),
@@ -821,7 +896,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                           Text(
                             app.name,
                             style: TextStyle(
-                              color: Colors.white,
                               fontSize: 16,
                               fontWeight: FontWeight.w500,
                             ),
@@ -830,7 +904,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                           Text(
                             _formatDuration(app.duration),
                             style: TextStyle(
-                              color: Colors.white70,
                               fontSize: 14,
                             ),
                           ),
@@ -841,13 +914,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                     Container(
                       padding: EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                       decoration: BoxDecoration(
-                        color: Color(0xFF2D2D2D),
+                        color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.3),
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: Text(
                         '${_getUsagePercentage(app.duration).toStringAsFixed(0)}%',
                         style: TextStyle(
-                          color: Colors.white70,
                           fontSize: 12,
                           fontWeight: FontWeight.w500,
                         ),
@@ -870,5 +942,87 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     );
     if (totalMinutes == 0) return 0;
     return (appDuration.inMinutes / totalMinutes) * 100;
+  }
+
+  // Animated progress ring used in hero
+}
+
+class _AnimatedProgressRing extends StatelessWidget {
+  final double progress;
+  final Color color;
+  final Color background;
+  final Widget child;
+  const _AnimatedProgressRing({
+    required this.progress,
+    required this.color,
+    required this.background,
+    required this.child,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return TweenAnimationBuilder<double>(
+      duration: const Duration(milliseconds: 600),
+      curve: Curves.easeOutCubic,
+      tween: Tween(begin: 0, end: progress.clamp(0.0, 1.0)),
+      builder: (context, value, _) {
+        return CustomPaint(
+          painter: _RingPainter(progress: value, color: color, background: background),
+          child: Center(child: child),
+        );
+      },
+    );
+  }
+}
+
+class _RingPainter extends CustomPainter {
+  final double progress;
+  final Color color;
+  final Color background;
+  _RingPainter({required this.progress, required this.color, required this.background});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final stroke = 12.0;
+    final rect = Offset.zero & size;
+    final center = rect.center;
+    final radius = (size.shortestSide - stroke) / 2;
+
+    final bgPaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = stroke
+      ..strokeCap = StrokeCap.round
+      ..color = background;
+    final fgPaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = stroke
+      ..strokeCap = StrokeCap.round
+      ..shader = SweepGradient(
+        startAngle: -3.14 / 2,
+        endAngle: -3.14 / 2 + 6.28,
+        colors: [color, color.withOpacity(0.6)],
+      ).createShader(Rect.fromCircle(center: center, radius: radius));
+
+    // background circle
+    canvas.drawArc(
+      Rect.fromCircle(center: center, radius: radius),
+      0,
+      6.28318,
+      false,
+      bgPaint,
+    );
+    // foreground arc
+    canvas.drawArc(
+      Rect.fromCircle(center: center, radius: radius),
+      -3.14159 / 2,
+      6.28318 * progress,
+      false,
+      fgPaint,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _RingPainter oldDelegate) {
+    return oldDelegate.progress != progress || oldDelegate.color != color || oldDelegate.background != background;
   }
 }

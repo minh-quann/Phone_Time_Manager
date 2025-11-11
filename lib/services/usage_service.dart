@@ -24,6 +24,21 @@ class UsageService {
     }
   }
 
+  static Future<Duration> getUsageForDay(DateTime day) async {
+    try {
+      final start = DateTime(day.year, day.month, day.day).millisecondsSinceEpoch;
+      final end = DateTime(day.year, day.month, day.day, 23, 59, 59).millisecondsSinceEpoch;
+      final result = await platform.invokeMethod('getUsageForPeriod', {
+        'start': start,
+        'end': end,
+      });
+      return Duration(milliseconds: (result as num).toInt());
+    } catch (e) {
+      print('Lỗi lấy usage theo ngày: $e');
+      return Duration.zero;
+    }
+  }
+
   static Future<void> openUsageSettings() async {
     try {
       await platform.invokeMethod('openUsageSettings');
@@ -96,6 +111,22 @@ class UsageService {
       return List<Map<String, dynamic>>.from(result as List);
     } catch (e) {
       print('Lỗi lấy danh sách app: $e');
+      return [];
+    }
+  }
+
+  static Future<List<Map<String, dynamic>>> getAppUsageForDay(DateTime day) async {
+    try {
+      final start = DateTime(day.year, day.month, day.day);
+      final end = DateTime(day.year, day.month, day.day, 23, 59, 59);
+      final data = await getAppUsageList(start, end);
+      // Chỉ thống kê app có thời gian >= 1 phút
+      return data.where((e) {
+        final usageMs = (e['usageTime'] as num?)?.toInt() ?? 0;
+        return usageMs >= 60000;
+      }).toList();
+    } catch (e) {
+      print('Lỗi lấy danh sách app theo ngày: $e');
       return [];
     }
   }
